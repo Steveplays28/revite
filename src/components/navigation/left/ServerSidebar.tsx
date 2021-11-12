@@ -31,7 +31,7 @@ interface Props {
 }
 
 const ServerBase = styled.div`
-    width: calc(100% - 56px - 10vw);
+    width: calc(100% - 56px - 1vw);
     height: 100%;
     display: flex;
     flex-shrink: 0;
