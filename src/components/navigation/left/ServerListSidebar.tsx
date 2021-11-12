@@ -76,6 +76,7 @@ function Icon({
 }
 
 const ServersBase = styled.div`
+    min-width: 56px;
     width: 56px;
     height: 100%;
     padding-left: 2px;

@@ -31,8 +31,8 @@ interface Props {
 }
 
 const ServerBase = styled.div`
+    width: calc(100% - 56px - 10vw);
     height: 100%;
-    width: 240px;
     display: flex;
     flex-shrink: 0;
     flex-direction: column;

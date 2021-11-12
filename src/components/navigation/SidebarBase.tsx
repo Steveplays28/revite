@@ -6,7 +6,9 @@ export default styled.div<{
     width?: string;
 }>`
     ${(props) => css`
+        min-width: ${props.width};
         width: ${props.width};
+        height: 100%;
         overflow: auto;
         display: flex;
         user-select: none;
@@ -23,8 +25,6 @@ export const GenericSidebarBase = styled.div<{
     flex-direction: column;
     border-end-start-radius: 8px;
     background: var(--secondary-background);
-    overflow: auto;
-    align-items: stretch;
 
     ${(props) =>
         props.mobilePadding &&
@@ -39,8 +39,6 @@ export const GenericSidebarList = styled.div`
     padding: 6px;
     flex-grow: 1;
     overflow-y: scroll;
-    overflow: auto;
-    align-items: stretch;
 
     > img {
         width: 100%;
