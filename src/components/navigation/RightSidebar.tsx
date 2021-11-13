@@ -30,7 +30,7 @@ export default function RightSidebar() {
         );
 
     return (
-        <SidebarBase width="0">
+        <SidebarBase width="25vw">
             <Switch>
                 <Route path="/server/:server/channel/:channel">{content}</Route>
                 <Route path="/channel/:channel">{content}</Route>
