@@ -15,7 +15,7 @@ let width = 500;
 function convertMouseMovementToWidth(mouseMovement: number) {
     width += mouseMovement;
 
-    return `clamp(56px, calc(${width}px + 1vw), 100vw)`;
+    return `clamp(calc(56px + 1vw), ${width}px, 100vw)`;
 }
 
 export default function LeftSidebar(this: typeof LeftSidebar) {
