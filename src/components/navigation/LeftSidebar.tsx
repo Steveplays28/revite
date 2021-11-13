@@ -17,7 +17,7 @@ function convertMouseMovementToWidth(mouseMovement: number) {
     return `clamp(calc(56px + 1vw), ${width}px, 100vw)`;
 }
 
-export default function LeftSidebar(this: typeof LeftSidebar) {
+export default function LeftSidebar() {
     const isOpen = useSelector(
         (state: State) => state.sectionToggle["sidebar_channels"] ?? true,
     );
