@@ -1,36 +1,32 @@
-import styled from "styled-components";
+import styled, { css } from "styled-components";
 
 import { useEffect } from "preact/hooks";
+
+import { isTouchscreenDevice } from "../../../lib/isTouchscreenDevice";
 
 interface Props {
     mouseMovementX(mouseMovementX: number): void;
 }
 
 const DragBarDiv = styled.div`
-    width: 1vw;
-    height: 100%;
-    background-color: blue;
+    ${!isTouchscreenDevice &&
+    css`
+        width: 1vw;
+        height: 100%;
+        background-color: var(--primary-header);
 
-    &:hover {
-        cursor: col-resize;
-    }
+        &:hover {
+            cursor: col-resize;
+        }
+    `}
 `;
 
 function DragBar(props: Props) {
-    // useEffect(() => {
-    //     function drag(ev: DragEvent) {
-    //         props.mouseMovementX(ev.movementX);
-    //     }
-
-    //     document.addEventListener("drag", drag);
-    //     return () => document.removeEventListener("drag", drag);
-    // }, [props]);
-
     let mouseDown = false;
-    function onMouseDown(ev: MouseEvent) {
+    function onMouseDown() {
         mouseDown = true;
     }
-    function onMouseUp(ev: MouseEvent) {
+    function onMouseUp() {
         mouseDown = false;
     }
 
@@ -46,14 +42,6 @@ function DragBar(props: Props) {
             document.removeEventListener("mousemove", onMouseMove);
         };
     }, [mouseDown, props]);
-
-    // props.width("50vw");
-
-    // function onMouseMove(ev: MouseEvent) {
-    //     if (mouseDown) {
-    //         props.mouseMovementX(ev.movementX);
-    //     }
-    // }
 
     return <DragBarDiv onMouseDown={onMouseDown} onMouseUp={onMouseUp} />;
 }
