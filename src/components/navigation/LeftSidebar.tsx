@@ -14,7 +14,8 @@ import ServerSidebar from "./left/ServerSidebar";
 let width = 500;
 function convertMouseMovementToWidth(mouseMovement: number) {
     width += mouseMovement;
-    return `${width}px`;
+
+    return `clamp(56px, calc(${width}px + 1vw), 100vw)`;
 }
 
 export default function LeftSidebar(this: typeof LeftSidebar) {
