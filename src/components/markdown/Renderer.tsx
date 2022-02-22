@@ -9,8 +9,6 @@ import MarkdownEmoji from "markdown-it-emoji/dist/markdown-it-emoji-bare";
 import MarkdownSub from "markdown-it-sub";
 // @ts-expect-error No typings.
 import MarkdownSup from "markdown-it-sup";
-import Prism from "prismjs";
-import "prismjs/themes/prism-tomorrow.css";
 import { RE_MENTIONS } from "revolt.js";
 
 import styles from "./Markdown.module.scss";
@@ -19,6 +17,7 @@ import { useCallback, useContext } from "preact/hooks";
 import { internalEmit } from "../../lib/eventEmitter";
 import { determineLink } from "../../lib/links";
 
+import { dayjs } from "../../context/Locale";
 import { useIntermediate } from "../../context/intermediate/Intermediate";
 import { AppContext } from "../../context/revoltjs/RevoltClient";
 
@@ -26,6 +25,7 @@ import { generateEmoji } from "../common/Emoji";
 
 import { emojiDictionary } from "../../assets/emojis";
 import { MarkdownProps } from "./Markdown";
+import Prism from "./prism";
 
 // TODO: global.d.ts file for defining globals
 declare global {
@@ -122,6 +122,8 @@ const RE_TWEMOJI = /:(\w+):/g;
 // ! FIXME: Move to library
 const RE_CHANNELS = /<#([A-z0-9]{26})>/g;
 
+const RE_TIME = /<t:([0-9]+):(\w)>/g;
+
 export default function Renderer({ content, disallowBigEmoji }: MarkdownProps) {
     const client = useContext(AppContext);
     const { openLink } = useIntermediate();
@@ -132,6 +134,33 @@ export default function Renderer({ content, disallowBigEmoji }: MarkdownProps) {
     // We replace the message with the mention at the time of render.
     // We don't care if the mention changes.
     const newContent = content
+        .replace(RE_TIME, (sub: string, ...args: unknown[]) => {
+            if (isNaN(args[0] as number)) return sub;
+            const date = dayjs.unix(args[0] as number);
+            const format = args[1] as string;
+            let final = "";
+            switch (format) {
+                case "t":
+                    final = date.format("hh:mm");
+                    break;
+                case "T":
+                    final = date.format("hh:mm:ss");
+                    break;
+                case "R":
+                    final = date.fromNow();
+                    break;
+                case "D":
+                    final = date.format("DD MMMM YYYY");
+                    break;
+                case "F":
+                    final = date.format("dddd, DD MMMM YYYY hh:mm");
+                    break;
+                default:
+                    final = date.format("DD MMMM YYYY hh:mm");
+                    break;
+            }
+            return `\`${final}\``;
+        })
         .replace(RE_MENTIONS, (sub: string, ...args: unknown[]) => {
             const id = args[0] as string,
                 user = client.users.get(id);

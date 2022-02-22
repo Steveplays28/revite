@@ -32,14 +32,9 @@ import {
 import { Text } from "preact-i18n";
 import { useContext } from "preact/hooks";
 
-import { dispatch } from "../redux";
-import { connectState } from "../redux/connector";
-import {
-    getNotificationState,
-    Notifications,
-    NotificationState,
-} from "../redux/reducers/notifications";
-import { QueuedMessage } from "../redux/reducers/queue";
+import { useApplicationState } from "../mobx/State";
+import { QueuedMessage } from "../mobx/stores/MessageQueue";
+import { NotificationState } from "../mobx/stores/NotificationOptions";
 
 import { Screen, useIntermediate } from "../context/intermediate/Intermediate";
 import {
@@ -48,6 +43,7 @@ import {
     StatusContext,
 } from "../context/revoltjs/RevoltClient";
 import { takeError } from "../context/revoltjs/util";
+import CMNotifications from "./contextmenu/CMNotifications";
 
 import Tooltip from "../components/common/Tooltip";
 import UserStatus from "../components/common/user/UserStatus";
@@ -56,6 +52,7 @@ import LineDivider from "../components/ui/LineDivider";
 
 import { Children } from "../types/Preact";
 import { internalEmit } from "./eventEmitter";
+import { getRenderer } from "./renderer/Singleton";
 
 interface ContextMenuData {
     user?: string;
@@ -77,6 +74,7 @@ type Action =
     | { action: "copy_text"; content: string }
     | { action: "mark_as_read"; channel: Channel }
     | { action: "mark_server_as_read"; server: Server }
+    | { action: "mark_unread"; message: Message }
     | { action: "retry_message"; message: QueuedMessage }
     | { action: "cancel_message"; message: QueuedMessage }
     | { action: "mention"; user: string }
@@ -105,41 +103,42 @@ type Action =
     | { action: "create_channel"; target: Server }
     | { action: "create_category"; target: Server }
     | {
-        action: "create_invite";
-        target: Channel;
-    }
+          action: "create_invite";
+          target: Channel;
+      }
     | { action: "leave_group"; target: Channel }
     | {
-        action: "delete_channel";
-        target: Channel;
-    }
+          action: "delete_channel";
+          target: Channel;
+      }
     | { action: "close_dm"; target: Channel }
     | { action: "leave_server"; target: Server }
     | { action: "delete_server"; target: Server }
     | { action: "edit_identity"; target: Server }
-    | { action: "open_notification_options"; channel: Channel }
+    | {
+          action: "open_notification_options";
+          channel?: Channel;
+          server?: Server;
+      }
     | { action: "open_settings" }
     | { action: "open_channel_settings"; id: string }
     | { action: "open_server_settings"; id: string }
     | { action: "open_server_channel_settings"; server: string; id: string }
     | {
-        action: "set_notification_state";
-        key: string;
-        state?: NotificationState;
-    };
-
-type Props = {
-    notifications: Notifications;
-};
+          action: "set_notification_state";
+          key: string;
+          state?: NotificationState;
+      };
 
 // ! FIXME: I dare someone to re-write this
 // Tip: This should just be split into separate context menus per logical area.
-function ContextMenus(props: Props) {
+export default function ContextMenus() {
     const { openScreen, writeClipboard } = useIntermediate();
     const client = useContext(AppContext);
     const userId = client.user!._id;
     const status = useContext(StatusContext);
     const isOnline = status === ClientStatus.ONLINE;
+    const state = useApplicationState();
     const history = useHistory();
 
     function contextClick(data?: Action) {
@@ -171,23 +170,40 @@ function ContextMenus(props: Props) {
                         )
                             return;
 
-                        dispatch({
-                            type: "UNREADS_MARK_READ",
-                            channel: data.channel._id,
-                            message: data.channel.last_message_id!,
-                        });
-
-                        data.channel.ack(undefined, true);
+                        client.unreads!.markRead(
+                            data.channel._id,
+                            data.channel.last_message_id!,
+                            true,
+                            true,
+                        );
                     }
                     break;
                 case "mark_server_as_read":
                     {
-                        dispatch({
-                            type: "UNREADS_MARK_MULTIPLE_READ",
-                            channels: data.server.channel_ids,
-                        });
+                        client.unreads!.markMultipleRead(
+                            data.server.channel_ids,
+                        );
 
                         data.server.ack();
+                    }
+                    break;
+
+                case "mark_unread":
+                    {
+                        const messages = getRenderer(
+                            data.message.channel!,
+                        ).messages;
+                        const index = messages.findIndex(
+                            (x) => x._id === data.message._id,
+                        );
+
+                        let unread_id = data.message._id;
+                        if (index > 0) {
+                            unread_id = messages[index - 1]._id;
+                        }
+
+                        internalEmit("NewMessages", "mark", unread_id);
+                        data.message.channel?.ack(unread_id, true);
                     }
                     break;
 
@@ -195,11 +211,7 @@ function ContextMenus(props: Props) {
                     {
                         const nonce = data.message.id;
                         const fail = (error: string) =>
-                            dispatch({
-                                type: "QUEUE_FAIL",
-                                nonce,
-                                error,
-                            });
+                            state.queue.fail(nonce, error);
 
                         client.channels
                             .get(data.message.channel)!
@@ -210,19 +222,13 @@ function ContextMenus(props: Props) {
                             })
                             .catch(fail);
 
-                        dispatch({
-                            type: "QUEUE_START",
-                            nonce,
-                        });
+                        state.queue.start(nonce);
                     }
                     break;
 
                 case "cancel_message":
                     {
-                        dispatch({
-                            type: "QUEUE_REMOVE",
-                            nonce: data.message.id,
-                        });
+                        state.queue.remove(data.message.id);
                     }
                     break;
 
@@ -427,6 +433,7 @@ function ContextMenus(props: Props) {
                 case "open_notification_options": {
                     openContextMenu("NotificationOptions", {
                         channel: data.channel,
+                        server: data.server,
                     });
                     break;
                 }
@@ -445,16 +452,6 @@ function ContextMenus(props: Props) {
                 case "open_server_settings":
                     history.push(`/server/${data.id}/settings`);
                     break;
-
-                case "set_notification_state": {
-                    const { key, state } = data;
-                    if (state) {
-                        dispatch({ type: "NOTIFICATIONS_SET", key, state });
-                    } else {
-                        dispatch({ type: "NOTIFICATIONS_REMOVE", key });
-                    }
-                    break;
-                }
             }
         })().catch((err) => {
             openScreen({ id: "error", error: takeError(err) });
@@ -483,14 +480,18 @@ function ContextMenus(props: Props) {
                         locale?: string,
                         disabled?: boolean,
                         tip?: Children,
+                        color?: string,
                     ) {
                         lastDivider = false;
                         elements.push(
                             <MenuItem data={action} disabled={disabled}>
-                                <Text
-                                    id={`app.context_menu.${locale ?? action.action
+                                <span style={{ color }}>
+                                    <Text
+                                        id={`app.context_menu.${
+                                            locale ?? action.action
                                         }`}
-                                />
+                                    />
+                                </span>
                                 {tip && <div className="tip">{tip}</div>}
                             </MenuItem>,
                         );
@@ -545,8 +546,8 @@ function ContextMenus(props: Props) {
                     const user = uid ? client.users.get(uid) : undefined;
                     const serverChannel =
                         targetChannel &&
-                            (targetChannel.channel_type === "TextChannel" ||
-                                targetChannel.channel_type === "VoiceChannel")
+                        (targetChannel.channel_type === "TextChannel" ||
+                            targetChannel.channel_type === "VoiceChannel")
                             ? targetChannel
                             : undefined;
 
@@ -558,8 +559,8 @@ function ContextMenus(props: Props) {
                         (server
                             ? server.permission
                             : serverChannel
-                                ? serverChannel.server?.permission
-                                : 0) || 0;
+                            ? serverChannel.server?.permission
+                            : 0) || 0;
                     const userPermissions = (user ? user.permission : 0) || 0;
 
                     if (unread) {
@@ -675,18 +676,30 @@ function ContextMenus(props: Props) {
                             if (
                                 serverPermissions & ServerPermission.KickMembers
                             )
-                                generateAction({
-                                    action: "kick_member",
-                                    target: server,
-                                    user: user!,
-                                });
+                                generateAction(
+                                    {
+                                        action: "kick_member",
+                                        target: server,
+                                        user: user!,
+                                    },
+                                    undefined, // this is needed because generateAction uses positional, not named parameters
+                                    undefined,
+                                    null,
+                                    "var(--error)", // the only relevant part really
+                                );
 
                             if (serverPermissions & ServerPermission.BanMembers)
-                                generateAction({
-                                    action: "ban_member",
-                                    target: server,
-                                    user: user!,
-                                });
+                                generateAction(
+                                    {
+                                        action: "ban_member",
+                                        target: server,
+                                        user: user!,
+                                    },
+                                    undefined,
+                                    undefined,
+                                    null,
+                                    "var(--error)",
+                                );
                         }
                     }
 
@@ -705,7 +718,8 @@ function ContextMenus(props: Props) {
                     if (message && !queued) {
                         const sendPermission =
                             message.channel &&
-                            message.channel.permission & ChannelPermission.SendMessage
+                            message.channel.permission &
+                                ChannelPermission.SendMessage;
 
                         if (sendPermission) {
                             generateAction({
@@ -713,6 +727,11 @@ function ContextMenus(props: Props) {
                                 target: message,
                             });
                         }
+
+                        generateAction({
+                            action: "mark_unread",
+                            message,
+                        });
 
                         if (
                             typeof message.content === "string" &&
@@ -741,7 +760,7 @@ function ContextMenus(props: Props) {
                         if (
                             message.author_id === userId ||
                             channelPermissions &
-                            ChannelPermission.ManageMessages
+                                ChannelPermission.ManageMessages
                         ) {
                             generateAction({
                                 action: "delete_message",
@@ -765,8 +784,8 @@ function ContextMenus(props: Props) {
                                 type === "Image"
                                     ? "open_image"
                                     : type === "Video"
-                                        ? "open_video"
-                                        : "open_file",
+                                    ? "open_video"
+                                    : "open_file",
                             );
 
                             generateAction(
@@ -777,8 +796,8 @@ function ContextMenus(props: Props) {
                                 type === "Image"
                                     ? "save_image"
                                     : type === "Video"
-                                        ? "save_video"
-                                        : "save_file",
+                                    ? "save_video"
+                                    : "save_file",
                             );
 
                             generateAction(
@@ -919,6 +938,16 @@ function ContextMenus(props: Props) {
                         }
 
                         if (sid && server) {
+                            generateAction(
+                                {
+                                    action: "open_notification_options",
+                                    server,
+                                },
+                                undefined,
+                                undefined,
+                                <ChevronRight size={24} />,
+                            );
+
                             if (server.channels[0] !== undefined)
                                 generateAction(
                                     {
@@ -930,9 +959,9 @@ function ContextMenus(props: Props) {
 
                             if (
                                 serverPermissions &
-                                ServerPermission.ChangeNickname ||
+                                    ServerPermission.ChangeNickname ||
                                 serverPermissions &
-                                ServerPermission.ChangeAvatar
+                                    ServerPermission.ChangeAvatar
                             )
                                 generateAction(
                                     { action: "edit_identity", target: server },
@@ -976,10 +1005,10 @@ function ContextMenus(props: Props) {
                             sid
                                 ? "copy_sid"
                                 : cid
-                                    ? "copy_cid"
-                                    : message
-                                        ? "copy_mid"
-                                        : "copy_uid",
+                                ? "copy_cid"
+                                : message
+                                ? "copy_mid"
+                                : "copy_uid",
                         );
                     }
 
@@ -1083,76 +1112,7 @@ function ContextMenus(props: Props) {
                     );
                 }}
             </ContextMenuWithData>
-            <ContextMenuWithData
-                id="NotificationOptions"
-                onClose={contextClick}>
-                {({ channel }: { channel: Channel }) => {
-                    const state = props.notifications[channel._id];
-                    const actual = getNotificationState(
-                        props.notifications,
-                        channel,
-                    );
-
-                    const elements: Children[] = [
-                        <MenuItem
-                            key="notif"
-                            data={{
-                                action: "set_notification_state",
-                                key: channel._id,
-                            }}>
-                            <Text
-                                id={`app.main.channel.notifications.default`}
-                            />
-                            <div className="tip">
-                                {state !== undefined && <Square size={20} />}
-                                {state === undefined && (
-                                    <CheckSquare size={20} />
-                                )}
-                            </div>
-                        </MenuItem>,
-                    ];
-
-                    function generate(key: string, icon: Children) {
-                        elements.push(
-                            <MenuItem
-                                key={key}
-                                data={{
-                                    action: "set_notification_state",
-                                    key: channel._id,
-                                    state: key,
-                                }}>
-                                {icon}
-                                <Text
-                                    id={`app.main.channel.notifications.${key}`}
-                                />
-                                {state === undefined && actual === key && (
-                                    <div className="tip">
-                                        <LeftArrowAlt size={20} />
-                                    </div>
-                                )}
-                                {state === key && (
-                                    <div className="tip">
-                                        <Check size={20} />
-                                    </div>
-                                )}
-                            </MenuItem>,
-                        );
-                    }
-
-                    generate("all", <Bell size={24} />);
-                    generate("mention", <At size={24} />);
-                    generate("muted", <BellOff size={24} />);
-                    generate("none", <Block size={24} />);
-
-                    return elements;
-                }}
-            </ContextMenuWithData>
+            <CMNotifications />
         </>
     );
 }
-
-export default connectState(ContextMenus, (state) => {
-    return {
-        notifications: state.notifications,
-    };
-});

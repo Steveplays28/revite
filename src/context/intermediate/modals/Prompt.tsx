@@ -81,6 +81,7 @@ type SpecialProps = { onClose: () => void } & (
 
 export const SpecialPromptModal = observer((props: SpecialProps) => {
     const client = useContext(AppContext);
+    const history = useHistory();
     const [processing, setProcessing] = useState(false);
     const [error, setError] = useState<undefined | string>(undefined);
 
@@ -155,10 +156,10 @@ export const SpecialPromptModal = observer((props: SpecialProps) => {
                                         case "leave_group":
                                         case "close_dm":
                                         case "delete_channel":
-                                            props.target.delete();
-                                            break;
                                         case "leave_server":
                                         case "delete_server":
+                                            if (props.type != "delete_channel")
+                                                history.push("/");
                                             props.target.delete();
                                             break;
                                         case "delete_bot":
@@ -227,9 +228,11 @@ export const SpecialPromptModal = observer((props: SpecialProps) => {
                     ]}
                     content={
                         <>
-                            <Text
-                                id={`app.special.modals.prompt.confirm_delete_message_long`}
-                            />
+                            <h5>
+                                <Text
+                                    id={`app.special.modals.prompt.confirm_delete_message_long`}
+                                />
+                            </h5>
                             <Message
                                 message={props.target}
                                 head={true}

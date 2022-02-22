@@ -3,19 +3,18 @@ import { File, XCircle } from "@styled-icons/boxicons-solid";
 import { observer } from "mobx-react-lite";
 import { Channel } from "revolt.js/dist/maps/Channels";
 import { Message } from "revolt.js/dist/maps/Messages";
-import styled from "styled-components";
+import styled from "styled-components/macro";
 
 import { Text } from "preact-i18n";
 import { StateUpdater, useEffect } from "preact/hooks";
 
 import { internalSubscribe } from "../../../../lib/eventEmitter";
-import { getRenderer } from "../../../../lib/renderer/Singleton";
 
-import { dispatch, getState } from "../../../../redux";
-import { Reply } from "../../../../redux/reducers/queue";
+import { useApplicationState } from "../../../../mobx/State";
+import { SECTION_MENTION } from "../../../../mobx/stores/Layout";
+import { Reply } from "../../../../mobx/stores/MessageQueue";
 
-import { useClient } from "../../../../context/revoltjs/RevoltClient";
-
+import Tooltip from "../../../common/Tooltip";
 import IconButton from "../../../ui/IconButton";
 
 import Markdown from "../../../markdown/Markdown";
@@ -30,12 +29,22 @@ interface Props {
 }
 
 const Base = styled.div`
+    @keyframes bottomBounce {
+        0% {
+            transform: translateY(33px);
+        }
+        100% {
+            transform: translateY(0px);
+        }
+    }
+
     display: flex;
     height: 30px;
-    padding: 0 12px;
+    padding: 0 20px;
     user-select: none;
     align-items: center;
-    background: var(--message-box);
+    background: var(--secondary-background);
+    animation: bottomBounce 340ms cubic-bezier(0.2, 0.9, 0.5, 1.16) forwards;
 
     > div {
         flex-grow: 1;
@@ -51,20 +60,34 @@ const Base = styled.div`
         display: flex;
         font-size: 12px;
         align-items: center;
-        font-weight: 600;
+        font-weight: 800;
         text-transform: uppercase;
         min-width: 6ch;
     }
 
-    .username {
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        font-weight: 600;
+    .replyto {
+        align-self: center;
+        font-weight: 500;
+        flex-shrink: 0;
     }
 
-    .message {
+    .content {
         display: flex;
+        pointer-events: none;
+
+        .username {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .message {
+            display: flex;
+            max-height: 26px;
+            gap: 4px;
+        }
     }
 
     .actions {
@@ -80,10 +103,12 @@ const Base = styled.div`
 `;
 
 // ! FIXME: Move to global config
-const MAX_REPLIES = 4;
+const MAX_REPLIES = 5;
 export default observer(({ channel, replies, setReplies }: Props) => {
-    const client = useClient();
+    const client = channel.client;
+    const layout = useApplicationState().layout;
 
+    // Event listener for adding new messages to reply bar.
     useEffect(() => {
         return internalSubscribe("ReplyBar", "add", (_message) => {
             const message = _message as Message;
@@ -100,68 +125,75 @@ export default observer(({ channel, replies, setReplies }: Props) => {
                     mention:
                         message.author_id === client.user!._id
                             ? false
-                            : getState().sectionToggle.mention ?? false,
+                            : layout.getSectionState(SECTION_MENTION, false),
                 },
             ]);
         });
     }, [replies, setReplies, client.user]);
 
-    const renderer = getRenderer(channel);
-    if (renderer.state !== "RENDER") return null;
+    // Map all the replies to messages we are aware of.
+    const messages = replies.map((x) => client.messages.get(x.id));
 
-    const ids = replies.map((x) => x.id);
-    const messages = renderer.messages.filter((x) => ids.includes(x._id));
+    // Remove any replies which don't resolve to valid messages.
+    useEffect(() => {
+        if (messages.includes(undefined)) {
+            setReplies(
+                replies.filter((_, i) => typeof messages[i] !== "undefined"),
+            );
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messages, replies, setReplies]);
 
     return (
         <div>
             {replies.map((reply, index) => {
-                const message = messages.find((x) => reply.id === x._id);
-                // ! FIXME: better solution would be to
-                // ! have a hook for resolving messages from
-                // ! render state along with relevant users
-                // -> which then fetches any unknown messages
-                if (!message)
-                    return (
-                        <span>
-                            <Text id="app.main.channel.misc.failed_load" />
-                        </span>
-                    );
+                const message = messages[index];
+                if (!message) return null;
 
                 return (
                     <Base key={reply.id}>
                         <ReplyBase preview>
-                            <ReplyIcon size={22} />
-                            <div class="username">
-                                <UserShort
-                                    user={message.author}
-                                    size={16}
-                                    showServerIdentity
-                                />
+                            <div class="replyto">
+                                <Text id="app.main.channel.reply.replying" />
                             </div>
-                            <div class="message">
-                                {message.attachments && (
-                                    <>
-                                        <File size={16} />
-                                        <em>
-                                            {message.attachments.length > 1 ? (
-                                                <Text id="app.main.channel.misc.sent_multiple_files" />
-                                            ) : (
-                                                <Text id="app.main.channel.misc.sent_file" />
-                                            )}
-                                        </em>
-                                    </>
-                                )}
-                                {message.author_id ===
-                                    "00000000000000000000000000" ? (
-                                    <SystemMessage message={message} hideInfo />
-                                ) : (
-                                    <Markdown
-                                        disallowBigEmoji
-                                        content={(
-                                            message.content as string
-                                        ).replace(/\n/g, " ")}
+                            <div class="content">
+                                <div class="username">
+                                    <UserShort
+                                        size={16}
+                                        showServerIdentity
+                                        user={message.author}
+                                        masquerade={message.masquerade!}
                                     />
-                                )}
+                                </div>
+                                <div class="message">
+                                    {message.attachments && (
+                                        <>
+                                            <File size={16} />
+                                            <em>
+                                                {message.attachments.length >
+                                                1 ? (
+                                                    <Text id="app.main.channel.misc.sent_multiple_files" />
+                                                ) : (
+                                                    <Text id="app.main.channel.misc.sent_file" />
+                                                )}
+                                            </em>
+                                        </>
+                                    )}
+                                    {message.author_id ===
+                                    "00000000000000000000000000" ? (
+                                        <SystemMessage
+                                            message={message}
+                                            hideInfo
+                                        />
+                                    ) : (
+                                        <Markdown
+                                            disallowBigEmoji
+                                            content={(
+                                                message.content as string
+                                            ).replace(/\n/g, " ")}
+                                        />
+                                    )}
+                                </div>
                             </div>
                         </ReplyBase>
                         <span class="actions">
@@ -183,16 +215,27 @@ export default observer(({ channel, replies, setReplies }: Props) => {
                                             }),
                                         );
 
-                                        dispatch({
-                                            type: "SECTION_TOGGLE_SET",
-                                            id: "mention",
+                                        layout.setSectionState(
+                                            SECTION_MENTION,
                                             state,
-                                        });
+                                            false,
+                                        );
                                     }}>
-                                    <span class="toggle">
-                                        <At size={15} />
-                                        <Text id={reply.mention ? 'general.on' : 'general.off'} />
-                                    </span>
+                                    <Tooltip
+                                        content={
+                                            <Text id="app.main.channel.reply.toggle" />
+                                        }>
+                                        <span class="toggle">
+                                            <At size={15} />
+                                            <Text
+                                                id={
+                                                    reply.mention
+                                                        ? "general.on"
+                                                        : "general.off"
+                                                }
+                                            />
+                                        </span>
+                                    </Tooltip>
                                 </IconButton>
                             )}
                             <IconButton
